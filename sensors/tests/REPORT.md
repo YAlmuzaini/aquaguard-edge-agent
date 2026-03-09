@@ -11,10 +11,12 @@ Next, we integrated a **DS18B20 temperature sensor** over the Pi’s **1-Wire** 
 The system can now:
 
 - Read real analog sensor data (TDS)
+- Read real analog sensor data (pH)
 - Convert it into meaningful measurements (ppm)
 - Filter noise and stabilize readings (moving average)
 - Detect sensor state (wet vs dry for TDS)
 - Measure temperature digitally (DS18B20)
+- Run prototype test readers for flow and pressure
 
 **Technically:** we have a working embedded sensor pipeline: *physical environment → sensor → signal → converter → Raspberry Pi → processed data* — the same architecture used in real IoT monitoring devices.
 
@@ -26,8 +28,11 @@ The system can now:
 |------------------------|----------|
 | ADC communication      | Working  |
 | TDS readings           | Stable   |
+| pH readings            | Working (prototype calibration) |
 | Signal filtering       | Implemented |
 | Temperature sensing    | Working  |
+| Flow test reader       | Added |
+| Pressure test reader   | Added |
 | Hardware wiring        | Verified |
 
 **Where we are:** Hardware validation is done (the hardest part). From here on, the rest is software integration and feature building.
@@ -38,15 +43,15 @@ The system can now:
 
 **Raspberry Pi**
 
-![Raspberry Pi setup](media/pi-setup.jpg)
+![Raspberry Pi setup](../media/pi-setup.jpg)
 
 **Breadboard (ADS1115 + TDS probe)**
 
-![Breadboard wiring](media/breadboard.jpg)
+![Breadboard wiring](../media/breadboard.jpg)
 
 **DS18B20 temperature sensor (1-Wire)**
 
-![DS18B20 / 1-Wire setup](media/temp-sensor.jpg)
+![DS18B20 / 1-Wire setup](../media/temp-sensor.jpg)
 
 ---
 
@@ -193,3 +198,141 @@ Temperature: 24.64 °C
 **Findings:** Sensor detected via 1-Wire; readings are smoothed and invalid reads are handled without crashing.
 
 ---
+
+## Sensor 3: pH
+
+- pH probe wired to ADS1115 (I2C) on channel 1.
+- Script reads probe voltage, applies a 10-sample moving average, and converts voltage to pH using a simple linear approximation.
+- This logic is suitable for prototype testing but still requires calibration with known buffer solutions.
+
+**`read_ph.py`** – main logic:
+
+```python
+import time
+from collections import deque
+
+import board
+import busio
+import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
+
+i2c = busio.I2C(board.SCL, board.SDA)
+ads = ADS.ADS1115(i2c)
+chan = AnalogIn(ads, 1)
+
+SMOOTHING_SAMPLES = 10
+voltage_history = deque(maxlen=SMOOTHING_SAMPLES)
+
+while True:
+    raw = chan.voltage
+    voltage_history.append(raw)
+    voltage = sum(voltage_history) / len(voltage_history)
+
+    ph = 7.0 - (voltage - 2.5) / 0.18
+    print(f"Voltage: {voltage:.3f} V   pH: {ph:.2f}")
+
+    time.sleep(1)
+```
+
+**Findings:** pH readings are available through ADS1115 channel A1 with smoothing already applied. Calibration constants are still approximate and should be tuned with pH buffer solutions before final use.
+
+---
+
+## Sensor 4: Flow (prototype test reader)
+
+- Flow is handled by a hall-effect pulse sensor connected to a Raspberry Pi GPIO input.
+- The new standalone test reader counts pulses using GPIO interrupts and converts pulses per second to flow in `L/min`.
+- This is a prototype conversion based on a common sensor constant and may need adjustment for the exact flow sensor model.
+
+**`read_flow.py`** – main logic:
+
+```python
+import time
+
+import RPi.GPIO as GPIO
+
+FLOW_GPIO_PIN = 17
+PULSES_PER_LITER_PER_MINUTE = 7.5
+
+pulse_count = 0
+
+def count_pulse(_channel):
+    global pulse_count
+    pulse_count += 1
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(FLOW_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.add_event_detect(FLOW_GPIO_PIN, GPIO.FALLING, callback=count_pulse)
+
+last_count = 0
+last_time = time.monotonic()
+
+while True:
+    time.sleep(1)
+    now = time.monotonic()
+    elapsed = max(now - last_time, 0.1)
+    pulses = pulse_count - last_count
+    last_time = now
+    last_count = pulse_count
+
+    pulses_per_second = pulses / elapsed
+    flow_l_min = pulses_per_second / PULSES_PER_LITER_PER_MINUTE
+    print(f"Pulses: {pulses:4d}   Flow: {flow_l_min:.2f} L/min")
+```
+
+**Findings:** Flow now has a direct hardware test path for Raspberry Pi GPIO. The script is suitable for bring-up and wiring verification, but the pulse-to-flow constant should be verified against the actual sensor datasheet and measured flow.
+
+---
+
+## Sensor 5: Pressure (prototype test reader)
+
+- Pressure is assumed to come from an analog pressure sensor connected to ADS1115 channel 2.
+- The test reader smooths voltage with a 10-sample moving average and converts it to a prototype pressure value using a simple linear placeholder.
+- This is intended for wiring validation and rough testing, not final calibrated pressure measurements.
+
+**`read_pressure.py`** – main logic:
+
+```python
+import time
+from collections import deque
+
+import adafruit_ads1x15.ads1115 as ADS
+import board
+import busio
+from adafruit_ads1x15.analog_in import AnalogIn
+
+ADS_ADDRESS = 0x48
+PRESSURE_CHANNEL = 2
+SMOOTHING_SAMPLES = 10
+
+i2c = busio.I2C(board.SCL, board.SDA)
+ads = ADS.ADS1115(i2c, address=ADS_ADDRESS)
+chan = AnalogIn(ads, PRESSURE_CHANNEL)
+
+voltage_history = deque(maxlen=SMOOTHING_SAMPLES)
+
+while True:
+    raw = chan.voltage
+    voltage_history.append(raw)
+    voltage = sum(voltage_history) / len(voltage_history)
+
+    pressure = voltage * 100
+    print(f"Voltage: {voltage:.3f} V   Pressure: {pressure:.2f}")
+    time.sleep(1)
+```
+
+**Findings:** Pressure now has a hardware test path using ADS1115 channel A2. The conversion function is intentionally simple and must be calibrated to the actual pressure sensor range and target engineering unit.
+
+---
+
+## Summary
+
+At this point the Raspberry Pi sensor test suite covers all five required measurement types:
+
+- TDS
+- Temperature
+- pH
+- Flow
+- Pressure
+
+The TDS, temperature, and pH readers are closest to usable sensor integrations. The new flow and pressure readers are prototype hardware test scripts intended to validate wiring and baseline signal acquisition before final calibration and integration into the full telemetry agent.
