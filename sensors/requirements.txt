@@ -1,0 +1,9 @@
+# Run: .venv/bin/python read_tds.py  (or any script in this folder)
+# Sensors stack: Blinka (GPIO/I2C) + ADS1115 ADC
+RPi.GPIO
+adafruit-blinka
+adafruit-circuitpython-ads1x15
+requests
+
+# On Raspberry Pi, I2C access may also need:
+# sudo raspi-config → Interface Options → I2C → Enable
