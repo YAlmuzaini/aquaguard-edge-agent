@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+import os
 import time
 
+from dotenv import load_dotenv
 import requests
 
 from sensors.flow_sensor import FlowSensor
@@ -9,11 +11,13 @@ from sensors.pressure_sensor import PressureSensor
 from sensors.tds_sensor import TdsSensor
 from sensors.temp_sensor import TemperatureSensor, discover_temperature_sensors
 
-PIPELINE_ID = "a0000000-0000-0000-0000-000000000001"
-INGEST_URL = "https://mbgspzuksgqeyvylnmvh.supabase.co/functions/v1/ingest-telemetry"
-INGEST_SECRET = "CHANGE_ME"
-LOOP_INTERVAL_SEC = 3
-REQUEST_TIMEOUT_SEC = 10
+load_dotenv()
+
+PIPELINE_ID = os.environ.get("PIPELINE_ID", "a0000000-0000-0000-0000-000000000001")
+INGEST_URL = os.environ["INGEST_URL"]
+INGEST_SECRET = os.environ["INGEST_TOKEN"]
+LOOP_INTERVAL_SEC = int(os.environ.get("SAMPLE_INTERVAL_SEC", "3"))
+REQUEST_TIMEOUT_SEC = int(os.environ.get("REQUEST_TIMEOUT_SEC", "10"))
 
 POINT_CONFIG = {
     "A": {"ads_address": 0x48, "flow_pin": 17},
