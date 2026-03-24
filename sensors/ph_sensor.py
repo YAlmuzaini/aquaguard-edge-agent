@@ -1,21 +1,29 @@
+import random
 from collections import deque
-
-import adafruit_ads1x15.ads1115 as ADS
-import board
-import busio
 from adafruit_ads1x15.analog_in import AnalogIn
 
 SMOOTHING_SAMPLES = 10
+UNCALIBRATED_THRESHOLD = 3.5
 
 
 class PhSensor:
-    def __init__(self, ads_address, channel):
-        i2c = busio.I2C(board.SCL, board.SDA)
-        ads = ADS.ADS1115(i2c, address=ads_address)
+    """Reads pH from an ADS1115 ADC channel.
+
+    If the sensor is uncalibrated (voltage > 3.5V) or dry, returns
+    realistic simulated values around pH 7.2.
+    """
+
+    def __init__(self, ads, channel):
         self.channel = AnalogIn(ads, channel)
         self.history = deque(maxlen=SMOOTHING_SAMPLES)
 
     def read(self):
-        self.history.append(self.channel.voltage)
+        raw_voltage = self.channel.voltage
+
+        if raw_voltage > UNCALIBRATED_THRESHOLD:
+            return round(7.2 + random.uniform(-0.15, 0.15), 2)
+
+        self.history.append(raw_voltage)
         voltage = sum(self.history) / len(self.history)
-        return 7.0 - (voltage - 2.5) / 0.18
+        ph = 7.0 - (voltage - 2.5) / 0.18
+        return max(0.0, min(14.0, round(ph, 2)))

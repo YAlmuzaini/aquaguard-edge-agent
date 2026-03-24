@@ -1,8 +1,4 @@
 from collections import deque
-
-import adafruit_ads1x15.ads1115 as ADS
-import board
-import busio
 from adafruit_ads1x15.analog_in import AnalogIn
 
 IN_WATER_VOLTAGE_THRESHOLD = 0.15
@@ -10,9 +6,12 @@ SMOOTHING_SAMPLES = 10
 
 
 class TdsSensor:
-    def __init__(self, ads_address, channel):
-        i2c = busio.I2C(board.SCL, board.SDA)
-        ads = ADS.ADS1115(i2c, address=ads_address)
+    """Reads TDS from an ADS1115 ADC channel.
+
+    When the probe is out of water (voltage < 0.15V) returns 0.
+    """
+
+    def __init__(self, ads, channel):
         self.channel = AnalogIn(ads, channel)
         self.history = deque(maxlen=SMOOTHING_SAMPLES)
 
